@@ -1,0 +1,125 @@
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+    run:
+        shell: bash
+
+jobs:
+  code_quality:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.2
+          tools: symfony-cli
+
+      - name: Install Composer dependencies
+        run: symfony composer install --prefer-dist --no-interaction --no-progress
+
+      - name: Run Easy Coding Standard
+        run: symfony php vendor/bin/ecs
+
+      - name: Run PHPStan
+        run: symfony php vendor/bin/phpstan analyze
+
+  e2e:
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        php-version: [ '8.1', '8.2', '8.3', '8.4' ]
+        dependency-version: [ '' ]
+        symfony-version: [ '' ]
+        minimum-stability: [ 'stable' ]
+        include:
+          # dev packages (probably not needed to have multiple such jobs)
+          -   minimum-stability: 'dev'
+              php-version: '8.4'
+          # lowest deps
+          -   php-version: '8.1'
+              dependency-version: 'lowest'
+          # LTS version of Symfony
+          -   php-version: '8.1'
+              symfony-version: '6.4.*'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.2
+          tools: symfony-cli, flex
+
+      - name: Install Composer dependencies
+        run: |
+          symfony composer config minimum-stability ${{ matrix.minimum-stability }}
+          SYMFONY_REQUIRE=${{ matrix.symfony-version || '>=6.4' }} symfony composer update ${{ matrix.dependency-version == 'lowest' && '--prefer-lowest' || '' }}
+
+      - name: Create a new Symfony project
+        run: |
+          git config --global user.email "hugo@alliau.me"
+          git config --global user.name "Hugo Alliaume"
+          case "${{ matrix.php-version }}" in
+            8.1) symfony new my_app --version="6.4.*" --webapp ;;
+            8.2) symfony new my_app --version="7.1.*" --webapp ;;
+            8.3) symfony new my_app --version="7.2.*" --webapp ;;
+            8.4) symfony new my_app --version="7.3.*" --webapp ;;
+          esac
+
+      - name: Install kocal/oxlint-bundle
+        working-directory: my_app
+        run: |
+          symfony composer config minimum-stability dev
+          symfony composer config --json extra.symfony.allow-contrib 'true'
+          symfony composer config repositories.oxlint-bundle '{"type":"path", "url":"../","options":{"symlink":true}}'
+          
+          cat << EOF > config/packages/kocal_oxlint.yaml
+          when@dev:
+              kocal_oxlint:
+                  binary_version: '1.8.0'
+          EOF
+          
+          symfony composer require 'kocal/oxlint-bundle:*' --dev --no-interaction
+          
+          cat << EOF > .oxlintrc.json
+          {
+            "ignorePatterns": [
+              "assets/vendor/**",
+              "public/assets/**",
+              "public/bundles/**",
+              "var/**",
+              "vendor/**"
+            ]
+          }
+          EOF
+
+      - name: Download the Oxlint CLI
+        working-directory: my_app
+        run: symfony console oxlint:download
+
+      - name: Run Oxlint, which should fails (but it's expected!)
+        working-directory: my_app
+        run: bin/oxlint
+        continue-on-error: true
+
+      - name: Run Oxlint --fix
+        working-directory: my_app
+        run: bin/oxlint --fix
+
+      - name: Run Oxlint, which should now pass
+        working-directory: my_app
+        run: bin/oxlint
