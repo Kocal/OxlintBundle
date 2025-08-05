@@ -55,19 +55,34 @@ jobs:
           # LTS version of Symfony
           -   php-version: '8.1'
               symfony-version: '6.4.*'
+          # Explicit Symfony versions
+          -  php-version: '8.1'
+             symfony-version: '6.4'
+          -  php-version: '8.2'
+             symfony-version: '7.0'
+          -  php-version: '8.4'
+             symfony-version: '8.0.x-dev' # TODO: change to '8.0' when Symfony 8.0 is released
+             minimum-stability: 'dev' # TODO: remove when Symfony 8.0 is released
     steps:
       - uses: actions/checkout@v4
 
       - name: Install PHP
         uses: shivammathur/setup-php@v2
         with:
-          php-version: 8.2
-          tools: symfony-cli, flex
+          php-version: ${{ matrix.php-version }}
+          tools: symfony-cli
+
+      - name: Allow Flex Plugin
+        run: composer global config --no-plugins allow-plugins.symfony/flex true
+        
+      - name: Configure Composer stability
+        run: composer config minimum-stability ${{ matrix.minimum-stability }}
 
       - name: Install Composer dependencies
         run: |
-          symfony composer config minimum-stability ${{ matrix.minimum-stability }}
-          SYMFONY_REQUIRE=${{ matrix.symfony-version || '>=6.4' }} symfony composer update ${{ matrix.dependency-version == 'lowest' && '--prefer-lowest' || '' }}
+          composer update ${{ matrix.dependency-version == 'lowest' && '--prefer-lowest' || '' }}
+        env:
+          SYMFONY_REQUIRE: ${{ matrix.symfony-version || '>=6.4' }}
 
       - name: Create a new Symfony project
         run: |
@@ -77,7 +92,10 @@ jobs:
             8.1) symfony new my_app --version="6.4.*" --webapp ;;
             8.2) symfony new my_app --version="7.1.*" --webapp ;;
             8.3) symfony new my_app --version="7.2.*" --webapp ;;
-            8.4) symfony new my_app --version="7.3.*" --webapp ;;
+            8.4) case "${{ matrix.symfony-version }}" in
+              8.0.x-dev) symfony new my_app --version="8.0.x-dev" --webapp ;;
+              *) symfony new my_app --version="7.3.*" --webapp ;;
+            esac ;;
           esac
 
       - name: Install kocal/oxlint-bundle
