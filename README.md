@@ -1,3 +1,8 @@
+> [!WARNING]
+> This package has been deprecated in favor of [Kocal/OxcBundle](https://github.com/Kocal/OxcBundle).
+
+---
+
 # OxlintBundle
 
 [![.github/workflows/ci.yaml](https://github.com/Kocal/OxlintBundle/actions/workflows/ci.yaml/badge.svg)](https://github.com/Kocal/OxlintBundle/actions/workflows/ci.yaml)
